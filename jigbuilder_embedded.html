@@ -1,0 +1,222 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Jig Builder - Embedded</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      display: flex;
+      flex-direction: row;
+    }
+    #sidebar {
+      width: 250px;
+      padding: 15px;
+      border-right: 1px solid #ccc;
+    }
+    #main {
+      flex-grow: 1;
+      padding: 15px;
+    }
+    canvas {
+      border: 1px solid #000;
+    }
+    .point-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 5px;
+      font-size: 0.9em;
+    }
+  </style>
+</head>
+<body>
+  <div id="sidebar">
+    <h3>Instructions</h3>
+    <ul>
+      <li>Select an enclosure size or enter custom dimensions</li>
+      <li>Enter X, Y coordinates (inches) relative to center</li>
+      <li>Click "Add Point" to add holes</li>
+      <li>Click and drag points to move</li>
+      <li>Use export to download .CSV of coordinates</li>
+    </ul>
+
+    <label for="size">Enclosure:</label><br/>
+    <select id="size">
+      <option value="1590B">1590B (4.4" x 2.4")</option>
+      <option value="1590BB">1590BB (4.7" x 3.7")</option>
+      <option value="125B">125B (4.8" x 2.6")</option>
+      <option value="Other">Other</option>
+    </select><br/><br/>
+
+    <div id="custom-size" style="display:none;">
+      <label>Width (in): <input type="number" id="customWidth" step="0.01"></label><br/>
+      <label>Height (in): <input type="number" id="customHeight" step="0.01"></label><br/>
+    </div><br/>
+
+    <label>X (in): <input type="number" id="xCoord" step="0.01"></label><br/>
+    <label>Y (in): <input type="number" id="yCoord" step="0.01"></label><br/>
+    <label>Description: <input type="text" id="desc"></label><br/><br/>
+    <button onclick="addPoint()">Add Point</button>
+    <button onclick="exportCSV()">Export CSV</button><br/><br/>
+
+    <label><input type="checkbox" id="landscapeToggle"> Landscape</label>
+
+    <h4>Points</h4>
+    <div id="pointList"></div>
+  </div>
+
+  <div id="main">
+    <canvas id="jigCanvas" width="600" height="500"></canvas>
+  </div>
+
+<script>
+  const canvas = document.getElementById("jigCanvas");
+  const ctx = canvas.getContext("2d");
+  let points = [];
+  let draggingIndex = null;
+  let currentLabelIndex = 0;
+
+  const enclosureSizes = {
+    "1590B": [4.4, 2.4],
+    "1590BB": [4.7, 3.7],
+    "125B": [4.8, 2.6],
+  };
+
+  let rectWidth = 4.4, rectHeight = 2.4;
+  let portrait = true;
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    let [w, h] = portrait ? [Math.min(rectWidth, rectHeight), Math.max(rectWidth, rectHeight)] :
+                            [Math.max(rectWidth, rectHeight), Math.min(rectWidth, rectHeight)];
+
+    const scale = Math.min(500 / w, 400 / h);
+    const cx = 300, cy = 250;
+    const halfW = (w * scale) / 2, halfH = (h * scale) / 2;
+
+    ctx.strokeStyle = "black";
+    ctx.strokeRect(cx - halfW, cy - halfH, w * scale, h * scale);
+
+    points.forEach((pt, i) => {
+      const px = cx + pt.x * scale;
+      const py = cy - pt.y * scale;
+      ctx.beginPath();
+      ctx.arc(px, py, 5, 0, Math.PI * 2);
+      ctx.fillStyle = "black";
+      ctx.fill();
+      ctx.fillText(pt.label, px + 8, py - 8);
+    });
+  }
+
+  function addPoint() {
+    const x = parseFloat(document.getElementById("xCoord").value);
+    const y = parseFloat(document.getElementById("yCoord").value);
+    const desc = document.getElementById("desc").value || "";
+    if (isNaN(x) || isNaN(y)) return alert("Enter valid X and Y");
+
+    const label = String.fromCharCode(65 + currentLabelIndex++);
+    points.push({x, y, label, desc});
+    updateList();
+    draw();
+  }
+
+  function updateList() {
+    const container = document.getElementById("pointList");
+    container.innerHTML = "";
+    points.forEach((pt, i) => {
+      const row = document.createElement("div");
+      row.className = "point-row";
+      row.innerHTML = `<span>${pt.label}: (${pt.x.toFixed(2)}, ${pt.y.toFixed(2)}) ${pt.desc}</span>
+                       <button onclick="deletePoint(${i})">X</button>`;
+      container.appendChild(row);
+    });
+  }
+
+  function deletePoint(index) {
+    points.splice(index, 1);
+    updateList();
+    draw();
+  }
+
+  function exportCSV() {
+    let csv = "Label,X,Y,Description\n";
+    points.forEach(p => {
+      csv += `${p.label},${p.x},${p.y},"${p.desc}"\n`;
+    });
+    const blob = new Blob([csv], {type: "text/csv"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "jig_points.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  document.getElementById("size").addEventListener("change", function() {
+    const val = this.value;
+    if (val === "Other") {
+      document.getElementById("custom-size").style.display = "block";
+      rectWidth = parseFloat(document.getElementById("customWidth").value) || 4;
+      rectHeight = parseFloat(document.getElementById("customHeight").value) || 2;
+    } else {
+      document.getElementById("custom-size").style.display = "none";
+      [rectWidth, rectHeight] = enclosureSizes[val];
+    }
+    draw();
+  });
+
+  document.getElementById("customWidth").addEventListener("input", e => {
+    rectWidth = parseFloat(e.target.value) || rectWidth;
+    draw();
+  });
+  document.getElementById("customHeight").addEventListener("input", e => {
+    rectHeight = parseFloat(e.target.value) || rectHeight;
+    draw();
+  });
+
+  document.getElementById("landscapeToggle").addEventListener("change", function() {
+    portrait = !this.checked;
+    draw();
+  });
+
+  canvas.addEventListener("mousedown", function(e) {
+    const rect = canvas.getBoundingClientRect();
+    const scale = Math.min(500 / rectWidth, 400 / rectHeight);
+    const cx = 300, cy = 250;
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    points.forEach((pt, i) => {
+      const px = cx + pt.x * scale;
+      const py = cy - pt.y * scale;
+      if (Math.abs(mx - px) < 8 && Math.abs(my - py) < 8) {
+        draggingIndex = i;
+      }
+    });
+  });
+
+  canvas.addEventListener("mousemove", function(e) {
+    if (draggingIndex === null) return;
+    const rect = canvas.getBoundingClientRect();
+    const scale = Math.min(500 / rectWidth, 400 / rectHeight);
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const x = (mx - 300) / scale;
+    const y = (250 - my) / scale;
+    points[draggingIndex].x = Math.round(x * 10) / 10;
+    points[draggingIndex].y = Math.round(y * 10) / 10;
+    updateList();
+    draw();
+  });
+
+  canvas.addEventListener("mouseup", () => {
+    draggingIndex = null;
+  });
+
+  draw();
+</script>
+</body>
+</html>
